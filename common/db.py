@@ -95,3 +95,35 @@ async def replay_events(thread_id: str) -> list[dict[str, Any]]:
         ) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+async def list_recent_threads(limit: int = 25) -> list[dict[str, Any]]:
+    """Return recent review sessions with a correctly ranked worst-risk value."""
+    if limit < 1:
+        return []
+    async with db_conn() as conn:
+        async with conn.execute(
+            """
+            SELECT thread_id,
+                   pr_url,
+                   MIN(timestamp) AS started,
+                   MAX(timestamp) AS last_event,
+                   CASE MAX(CASE risk_level
+                       WHEN 'high' THEN 3
+                       WHEN 'med'  THEN 2
+                       ELSE 1
+                   END)
+                       WHEN 3 THEN 'high'
+                       WHEN 2 THEN 'med'
+                       ELSE 'low'
+                   END AS worst_risk,
+                   COUNT(*) AS events
+              FROM audit_events
+             GROUP BY thread_id, pr_url
+             ORDER BY MAX(timestamp) DESC
+             LIMIT ?
+            """,
+            (limit,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [dict(row) for row in rows]
